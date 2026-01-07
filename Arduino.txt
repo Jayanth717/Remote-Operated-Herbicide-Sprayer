@@ -1,0 +1,285 @@
+#include <Servo.h>
+#include <SoftwareSerial.h>
+
+// Bluetooth on Arduino Mega: using pins A10, A11 as in your screenshot
+// NOTE: On Mega, A10/A11 map to digital pins 64/65 internally.
+// This can still work, but many people prefer using real digital pins.
+// Keeping your original mapping:
+SoftwareSerial BT(A10, A11); // RX, TX
+
+// Servos
+Servo servo_Motor1;
+Servo servo_Motor2;
+
+// Motor driver pins (as per your screenshots)
+int Motor_Right1_1 = 34;
+int Motor_Right1_2 = 35;
+
+int Motor_Left1_1  = 36;
+int Motor_Left1_2  = 37;
+
+int Motor_Right2_1 = 30;
+int Motor_Right2_2 = 31;
+
+int Motor_Left2_1  = 32;
+int Motor_Left2_2  = 33;
+
+// State and speed
+int state;
+int speedVal = 200; // default speed (0-255)
+
+// Servo positions
+int position1 = 90;
+int position2 = 90;
+
+// Pumps / relays
+int Pump_Motor1 = 13;
+int Pump_Motor2 = 38;
+int Pump_Motor3 = 44;
+
+// PWM pins for motor speed control (Mega supports PWM on 8-13, 44-46, etc.)
+int pwm1 = 8;
+int pwm2 = 9;
+int pwm3 = 10;
+int pwm4 = 11;
+
+// -------- Helper functions --------
+void stopAll();
+void forward();
+void backward();
+void turnLeft();
+void turnRight();
+
+void pumpsOn();
+void pumpsOff();
+
+void applySpeed(int spd) {
+  spd = constrain(spd, 0, 255);
+  analogWrite(pwm1, spd);
+  analogWrite(pwm2, spd);
+  analogWrite(pwm3, spd);
+  analogWrite(pwm4, spd);
+}
+
+void setup() {
+  // Attach servos
+  servo_Motor1.attach(2);
+  servo_Motor2.attach(3);
+
+  servo_Motor1.write(position1);
+  servo_Motor2.write(position2);
+
+  // Motor pins as OUTPUT
+  pinMode(Motor_Right1_1, OUTPUT);
+  pinMode(Motor_Right1_2, OUTPUT);
+
+  pinMode(Motor_Left1_1, OUTPUT);
+  pinMode(Motor_Left1_2, OUTPUT);
+
+  pinMode(Motor_Right2_1, OUTPUT);
+  pinMode(Motor_Right2_2, OUTPUT);
+
+  pinMode(Motor_Left2_1, OUTPUT);
+  pinMode(Motor_Left2_2, OUTPUT);
+
+  // Pump pins
+  pinMode(Pump_Motor1, OUTPUT);
+  pinMode(Pump_Motor2, OUTPUT);
+  pinMode(Pump_Motor3, OUTPUT);
+
+  // PWM pins
+  pinMode(pwm1, OUTPUT);
+  pinMode(pwm2, OUTPUT);
+  pinMode(pwm3, OUTPUT);
+  pinMode(pwm4, OUTPUT);
+
+  // Start serial
+  Serial.begin(9600);
+  BT.begin(9600);
+
+  // Start safe
+  stopAll();
+  pumpsOff();
+  applySpeed(speedVal);
+
+  delay(100);
+}
+
+void loop() {
+  // Read Bluetooth command
+  if (BT.available() > 0) {
+    state = BT.read();
+    Serial.println(state);
+
+    // If command > 15 treat it as speed value (like in your screenshot)
+    if (state > 15) {
+      speedVal = state;               // keep your logic
+      speedVal = constrain(speedVal, 0, 255);
+      Serial.print("Speed set to: ");
+      Serial.println(speedVal);
+    }
+  }
+
+  // Movement controls
+  if (state == 1) {
+    forward();
+    Serial.println("The motor will go forward");
+  }
+  else if (state == 2) {
+    backward();
+    Serial.println("The motor will go backward");
+  }
+  else if (state == 3) {
+    turnLeft();
+    Serial.println("The motor will turn left");
+  }
+  else if (state == 4) {
+    turnRight();
+    Serial.println("The motor will turn right");
+  }
+  else if (state == 5) {
+    stopAll();
+    Serial.println("STOP!");
+  }
+
+  // Servo controls (with safe bounds)
+  else if (state == 6) { // lift
+    Serial.println("lift");
+    position1 = constrain(position1 + 1, 0, 180);
+    servo_Motor1.write(position1);
+  }
+  else if (state == 7) { // right
+    Serial.println("right");
+    position1 = constrain(position1 - 1, 0, 180);
+    servo_Motor1.write(position1);
+  }
+  else if (state == 8) { // up
+    Serial.println("up");
+    position2 = constrain(position2 - 1, 0, 180);
+    servo_Motor2.write(position2);
+  }
+  else if (state == 9) { // down
+    Serial.println("down");
+    position2 = constrain(position2 + 1, 0, 180);
+    servo_Motor2.write(position2);
+  }
+
+  // Pump controls
+  else if (state == 10) {
+    Serial.println("pump on");
+    pumpsOn();
+  }
+  else if (state == 11) {
+    Serial.println("pump off");
+    pumpsOff();
+  }
+
+  // This block in your screenshot sets pumps HIGH and updates speed + servos.
+  // That usually means pumps are controlled by ACTIVE-LOW relays.
+  // I preserved the intent but made it clearer:
+  else if (state == 12) {
+    Serial.println("apply speed + hold servos");
+    pumpsOff();                 // safer default; change to pumpsOn() if needed
+    servo_Motor1.write(position1);
+    servo_Motor2.write(position2);
+    applySpeed(speedVal);
+  }
+
+  // Always keep PWM applied when moving
+  // (If you want speed only when moving, you can move applySpeed() into movement blocks)
+  applySpeed(speedVal);
+}
+
+// ---------------- Motor Functions ----------------
+
+void stopAll() {
+  digitalWrite(Motor_Right1_1, LOW);
+  digitalWrite(Motor_Right1_2, LOW);
+
+  digitalWrite(Motor_Left1_1, LOW);
+  digitalWrite(Motor_Left1_2, LOW);
+
+  digitalWrite(Motor_Right2_1, LOW);
+  digitalWrite(Motor_Right2_2, LOW);
+
+  digitalWrite(Motor_Left2_1, LOW);
+  digitalWrite(Motor_Left2_2, LOW);
+}
+
+void forward() {
+  // Matches your screenshot wiring (one side inverted)
+  digitalWrite(Motor_Right1_1, LOW);
+  digitalWrite(Motor_Right1_2, HIGH);
+
+  digitalWrite(Motor_Left1_1, HIGH);
+  digitalWrite(Motor_Left1_2, LOW);
+
+  digitalWrite(Motor_Right2_1, HIGH);
+  digitalWrite(Motor_Right2_2, LOW);
+
+  digitalWrite(Motor_Left2_1, LOW);
+  digitalWrite(Motor_Left2_2, HIGH);
+}
+
+void backward() {
+  // Reverse of forward()
+  digitalWrite(Motor_Right1_1, HIGH);
+  digitalWrite(Motor_Right1_2, LOW);
+
+  digitalWrite(Motor_Left1_1, LOW);
+  digitalWrite(Motor_Left1_2, HIGH);
+
+  digitalWrite(Motor_Right2_1, LOW);
+  digitalWrite(Motor_Right2_2, HIGH);
+
+  digitalWrite(Motor_Left2_1, HIGH);
+  digitalWrite(Motor_Left2_2, LOW);
+}
+
+void turnRight() {
+  // Matches your screenshot
+  digitalWrite(Motor_Right1_1, HIGH);
+  digitalWrite(Motor_Right1_2, LOW);
+
+  digitalWrite(Motor_Left1_1, HIGH);
+  digitalWrite(Motor_Left1_2, LOW);
+
+  digitalWrite(Motor_Right2_1, HIGH);
+  digitalWrite(Motor_Right2_2, LOW);
+
+  digitalWrite(Motor_Left2_1, HIGH);
+  digitalWrite(Motor_Left2_2, LOW);
+}
+
+void turnLeft() {
+  // Matches your screenshot
+  digitalWrite(Motor_Right1_1, LOW);
+  digitalWrite(Motor_Right1_2, HIGH);
+
+  digitalWrite(Motor_Left1_1, LOW);
+  digitalWrite(Motor_Left1_2, HIGH);
+
+  digitalWrite(Motor_Right2_1, LOW);
+  digitalWrite(Motor_Right2_2, HIGH);
+
+  digitalWrite(Motor_Left2_1, LOW);
+  digitalWrite(Motor_Left2_2, HIGH);
+}
+
+// ---------------- Pump Functions ----------------
+// Many pump modules use relays that are ACTIVE-LOW.
+// Your screenshot had mixed HIGH/LOW behavior.
+// Start with this SAFE setup. If your relay is opposite, swap HIGH/LOW.
+
+void pumpsOn() {
+  // Try ACTIVE-LOW ON:
+  digitalWrite(Pump_Motor1, LOW);
+  digitalWrite(Pump_Motor2, LOW);
+  digitalWrite(Pump_Motor3, LOW);
+}
+
+void pumpsOff() {
+  digitalWrite(Pump_Motor1, HIGH);
+  digitalWrite(Pump_Motor2, HIGH);
+  digitalWrite(Pump_Motor3, HIGH);
+}
